@@ -26,6 +26,7 @@ import (
 	"gvisor.dev/gvisor/pkg/sentry/fs"
 	"gvisor.dev/gvisor/pkg/sentry/kernel"
 	"gvisor.dev/gvisor/pkg/sentry/kernel/auth"
+	"gvisor.dev/gvisor/pkg/sentry/kernel/ipc"
 	"gvisor.dev/gvisor/pkg/syserror"
 )
 
@@ -33,7 +34,7 @@ const opsMax = 500 // SEMOPM
 
 // Semget handles: semget(key_t key, int nsems, int semflg)
 func Semget(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
-	key := args[0].Int()
+	key := ipc.Key(args[0].Int())
 	nsems := args[1].Int()
 	flag := args[2].Int()
 
@@ -47,7 +48,7 @@ func Semget(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscal
 	if err != nil {
 		return 0, nil, err
 	}
-	return uintptr(set.ID), nil, nil
+	return uintptr(set.ID()), nil, nil
 }
 
 // Semtimedop handles: semop(int semid, struct sembuf *sops, size_t nsops, const struct timespec *timeout)
@@ -57,7 +58,7 @@ func Semtimedop(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Sy
 		return Semop(t, args)
 	}
 
-	id := args[0].Int()
+	id := ipc.ID(args[0].Int())
 	sembufAddr := args[1].Pointer()
 	nsops := args[2].SizeT()
 	timespecAddr := args[3].Pointer()
@@ -92,7 +93,7 @@ func Semtimedop(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Sy
 
 // Semop handles: semop(int semid, struct sembuf *sops, size_t nsops)
 func Semop(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
-	id := args[0].Int()
+	id := ipc.ID(args[0].Int())
 	sembufAddr := args[1].Pointer()
 	nsops := args[2].SizeT()
 
@@ -110,7 +111,7 @@ func Semop(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 	return 0, nil, semTimedOp(t, id, ops, false, time.Second)
 }
 
-func semTimedOp(t *kernel.Task, id int32, ops []linux.Sembuf, haveTimeout bool, timeout time.Duration) error {
+func semTimedOp(t *kernel.Task, id ipc.ID, ops []linux.Sembuf, haveTimeout bool, timeout time.Duration) error {
 	set := t.IPCNamespace().SemaphoreRegistry().FindByID(id)
 
 	if set == nil {
@@ -132,7 +133,7 @@ func semTimedOp(t *kernel.Task, id int32, ops []linux.Sembuf, haveTimeout bool, 
 
 // Semctl handles: semctl(int semid, int semnum, int cmd, ...)
 func Semctl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.SyscallControl, error) {
-	id := args[0].Int()
+	id := ipc.ID(args[0].Int())
 	num := args[1].Int()
 	cmd := args[2].Int()
 
@@ -211,7 +212,7 @@ func Semctl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscal
 	case linux.SEM_STAT:
 		arg := args[3].Pointer()
 		// id is an index in SEM_STAT.
-		semid, ds, err := semStat(t, id)
+		semid, ds, err := semStat(t, int32(id))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -223,7 +224,7 @@ func Semctl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscal
 	case linux.SEM_STAT_ANY:
 		arg := args[3].Pointer()
 		// id is an index in SEM_STAT.
-		semid, ds, err := semStatAny(t, id)
+		semid, ds, err := semStatAny(t, int32(id))
 		if err != nil {
 			return 0, nil, err
 		}
@@ -237,13 +238,13 @@ func Semctl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscal
 	}
 }
 
-func remove(t *kernel.Task, id int32) error {
+func remove(t *kernel.Task, id ipc.ID) error {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	creds := auth.CredentialsFromContext(t)
-	return r.RemoveID(id, creds)
+	return r.Remove(id, creds)
 }
 
-func ipcSet(t *kernel.Task, id int32, uid auth.UID, gid auth.GID, perms fs.FilePermissions) error {
+func ipcSet(t *kernel.Task, id ipc.ID, uid auth.UID, gid auth.GID, perms fs.FilePermissions) error {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -263,7 +264,7 @@ func ipcSet(t *kernel.Task, id int32, uid auth.UID, gid auth.GID, perms fs.FileP
 	return set.Change(t, creds, owner, perms)
 }
 
-func ipcStat(t *kernel.Task, id int32) (*linux.SemidDS, error) {
+func ipcStat(t *kernel.Task, id ipc.ID) (*linux.SemidDS, error) {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -284,7 +285,7 @@ func semStat(t *kernel.Task, index int32) (int32, *linux.SemidDS, error) {
 	if err != nil {
 		return 0, ds, err
 	}
-	return set.ID, ds, nil
+	return int32(set.ID()), ds, nil
 }
 
 func semStatAny(t *kernel.Task, index int32) (int32, *linux.SemidDS, error) {
@@ -297,10 +298,10 @@ func semStatAny(t *kernel.Task, index int32) (int32, *linux.SemidDS, error) {
 	if err != nil {
 		return 0, ds, err
 	}
-	return set.ID, ds, nil
+	return int32(set.ID()), ds, nil
 }
 
-func setVal(t *kernel.Task, id int32, num int32, val int16) error {
+func setVal(t *kernel.Task, id ipc.ID, num int32, val int16) error {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -311,7 +312,7 @@ func setVal(t *kernel.Task, id int32, num int32, val int16) error {
 	return set.SetVal(t, num, val, creds, int32(pid))
 }
 
-func setValAll(t *kernel.Task, id int32, array hostarch.Addr) error {
+func setValAll(t *kernel.Task, id ipc.ID, array hostarch.Addr) error {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -326,7 +327,7 @@ func setValAll(t *kernel.Task, id int32, array hostarch.Addr) error {
 	return set.SetValAll(t, vals, creds, int32(pid))
 }
 
-func getVal(t *kernel.Task, id int32, num int32) (int16, error) {
+func getVal(t *kernel.Task, id ipc.ID, num int32) (int16, error) {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -336,7 +337,7 @@ func getVal(t *kernel.Task, id int32, num int32) (int16, error) {
 	return set.GetVal(num, creds)
 }
 
-func getValAll(t *kernel.Task, id int32, array hostarch.Addr) error {
+func getValAll(t *kernel.Task, id ipc.ID, array hostarch.Addr) error {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -351,7 +352,7 @@ func getValAll(t *kernel.Task, id int32, array hostarch.Addr) error {
 	return err
 }
 
-func getPID(t *kernel.Task, id int32, num int32) (int32, error) {
+func getPID(t *kernel.Task, id ipc.ID, num int32) (int32, error) {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -370,7 +371,7 @@ func getPID(t *kernel.Task, id int32, num int32) (int32, error) {
 	return int32(tg.ID()), nil
 }
 
-func getZCnt(t *kernel.Task, id int32, num int32) (uint16, error) {
+func getZCnt(t *kernel.Task, id ipc.ID, num int32) (uint16, error) {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
@@ -380,7 +381,7 @@ func getZCnt(t *kernel.Task, id int32, num int32) (uint16, error) {
 	return set.CountZeroWaiters(num, creds)
 }
 
-func getNCnt(t *kernel.Task, id int32, num int32) (uint16, error) {
+func getNCnt(t *kernel.Task, id ipc.ID, num int32) (uint16, error) {
 	r := t.IPCNamespace().SemaphoreRegistry()
 	set := r.FindByID(id)
 	if set == nil {
