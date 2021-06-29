@@ -32,12 +32,15 @@ func Ioctl(t *kernel.Task, args arch.SyscallArguments) (uintptr, *kernel.Syscall
 	}
 	defer file.DecRef(t)
 
-	if file.StatusFlags()&linux.O_PATH != 0 {
+	cmd := args[1].Int64()
+
+	// ioctl(2) commands on symlink path for verity is allowed.
+	if file.StatusFlags()&linux.O_PATH != 0 && cmd != linux.FS_IOC_ENABLE_VERITY && cmd != linux.FS_IOC_MEASURE_VERITY {
 		return 0, nil, syserror.EBADF
 	}
 
 	// Handle ioctls that apply to all FDs.
-	switch args[1].Int() {
+	switch cmd {
 	case linux.FIONCLEX:
 		t.FDTable().SetFlagsVFS2(t, fd, kernel.FDFlags{
 			CloseOnExec: false,
