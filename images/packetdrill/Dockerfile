@@ -1,4 +1,4 @@
-FROM ubuntu:bionic
+FROM ubuntu:18.04
 RUN apt-get update && apt-get install -y net-tools git iptables iputils-ping \
         netcat tcpdump jq tar bison flex make
 # Pick up updated git.
