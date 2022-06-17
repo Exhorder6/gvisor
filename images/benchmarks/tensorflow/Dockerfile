@@ -1,4 +1,4 @@
-FROM tensorflow/tensorflow:1.13.2
+FROM tensorflow/tensorflow:1.15.4
 
 RUN apt-get update \
     && apt-get install -y git
