@@ -1,4 +1,4 @@
-FROM nginx:1.15.10
+FROM nginx:1.24
 
 # Generate a bunch of relevant files.
 RUN mkdir -p /local && \
